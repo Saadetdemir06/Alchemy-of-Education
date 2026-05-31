@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "921558057616",
+    "project_id": "alchemy-of-education",
+    "storage_bucket": "alchemy-of-education.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:921558057616:android:a6fe21fcbe60f275db8e15",
+        "android_client_info": {
+          "package_name": "com.example.mobile"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyARQWkNio7wEzEVmvkJnO9U6JB6ubZzuPs"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
