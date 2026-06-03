@@ -60,6 +60,12 @@ class _HomeShellScreenState extends State<HomeShellScreen> {
     });
   }
 
+  void goToGameMode() {
+    setState(() {
+      currentTab = 1;
+    });
+  }
+
   void startLearning() {
     Navigator.push(
       context,
@@ -102,6 +108,7 @@ class _HomeShellScreenState extends State<HomeShellScreen> {
             selectedLevel = level;
           });
         },
+        onGoToGameMode: goToGameMode,
       ),
       _GameModePage(
         selectedMode: selectedMode,
@@ -111,6 +118,11 @@ class _HomeShellScreenState extends State<HomeShellScreen> {
           });
         },
         onStart: startLearning,
+        onBack: () {
+          setState(() {
+            currentTab = 0;
+          });
+        },
       ),
       const ProfileScreen(),
     ];
@@ -154,11 +166,7 @@ class _HomeShellScreenState extends State<HomeShellScreen> {
                 child: _ImageBottomNav(
                   currentIndex: currentTab,
                   onHome: goHome,
-                  onGame: () {
-                    setState(() {
-                      currentTab = 1;
-                    });
-                  },
+                  onGame: goToGameMode,
                   onProfile: () {
                     setState(() {
                       currentTab = 2;
@@ -187,6 +195,7 @@ class _HomeRealmPage extends StatelessWidget {
   final ValueChanged<String> onTopicTap;
   final VoidCallback onBackToFields;
   final ValueChanged<String> onLevelChanged;
+  final VoidCallback onGoToGameMode;
 
   const _HomeRealmPage({
     required this.showTopics,
@@ -201,6 +210,7 @@ class _HomeRealmPage extends StatelessWidget {
     required this.onTopicTap,
     required this.onBackToFields,
     required this.onLevelChanged,
+    required this.onGoToGameMode,
   });
 
   @override
@@ -234,6 +244,7 @@ class _HomeRealmPage extends StatelessWidget {
                   onTopicTap: onTopicTap,
                   onBackToFields: onBackToFields,
                   onLevelChanged: onLevelChanged,
+                  onGoToGameMode: onGoToGameMode,
                 )
               : _FieldGateArea(
                   key: const ValueKey('fields'),
@@ -405,6 +416,7 @@ class _TopicSelectionArea extends StatelessWidget {
   final ValueChanged<String> onTopicTap;
   final VoidCallback onBackToFields;
   final ValueChanged<String> onLevelChanged;
+  final VoidCallback onGoToGameMode;
 
   const _TopicSelectionArea({
     super.key,
@@ -417,21 +429,24 @@ class _TopicSelectionArea extends StatelessWidget {
     required this.onTopicTap,
     required this.onBackToFields,
     required this.onLevelChanged,
+    required this.onGoToGameMode,
   });
 
   @override
   Widget build(BuildContext context) {
     return Column(
       children: [
-        Row(
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _RoundBackButton(onTap: onBackToFields),
-            const SizedBox(width: 10),
-            Expanded(
-              child: _ScrollHeader(
-                title: '${selectedField.title} Görevleri',
-                subtitle: 'Bir başlangıç konusu seç',
-              ),
+            _SoftBackButton(
+              text: 'Alan Seçimine Dön',
+              onTap: onBackToFields,
+            ),
+            const SizedBox(height: 12),
+            _ScrollHeader(
+              title: '${selectedField.title} Görevleri',
+              subtitle: 'Bir başlangıç konusu seç',
             ),
           ],
         ),
@@ -492,6 +507,11 @@ class _TopicSelectionArea extends StatelessWidget {
           selectedLevel: selectedLevel,
           glowColor: selectedMode.glowColor,
           onChanged: onLevelChanged,
+        ),
+        const SizedBox(height: 18),
+        _GoToGameModeButton(
+          glowColor: selectedMode.glowColor,
+          onTap: onGoToGameMode,
         ),
       ],
     );
@@ -686,6 +706,61 @@ class _RoundBackButton extends StatelessWidget {
   }
 }
 
+class _SoftBackButton extends StatelessWidget {
+  final String text;
+  final VoidCallback onTap;
+
+  const _SoftBackButton({
+    required this.text,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: onTap,
+      child: Container(
+        height: 42,
+        padding: const EdgeInsets.symmetric(horizontal: 13),
+        decoration: BoxDecoration(
+          color: const Color(0xFF2A2A33).withOpacity(0.88),
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(
+            color: Colors.white.withOpacity(0.15),
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.28),
+              blurRadius: 10,
+              offset: const Offset(0, 5),
+            ),
+          ],
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.arrow_back_rounded,
+              color: Colors.white.withOpacity(0.78),
+              size: 20,
+            ),
+            const SizedBox(width: 7),
+            Text(
+              text,
+              style: TextStyle(
+                color: Colors.white.withOpacity(0.82),
+                fontSize: 12.2,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _ScrollHeader extends StatelessWidget {
   final String title;
   final String subtitle;
@@ -786,15 +861,84 @@ class _LevelSelector extends StatelessWidget {
   }
 }
 
+class _GoToGameModeButton extends StatelessWidget {
+  final Color glowColor;
+  final VoidCallback onTap;
+
+  const _GoToGameModeButton({
+    required this.glowColor,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 56,
+      width: double.infinity,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(999),
+        gradient: LinearGradient(
+          colors: [
+            glowColor,
+            const Color(0xFFFFD58A),
+          ],
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: glowColor.withOpacity(0.50),
+            blurRadius: 26,
+            spreadRadius: 1,
+            offset: const Offset(0, 11),
+          ),
+        ],
+        border: Border.all(
+          color: Colors.white.withOpacity(0.28),
+          width: 1.1,
+        ),
+      ),
+      child: ElevatedButton(
+        onPressed: onTap,
+        style: ElevatedButton.styleFrom(
+          backgroundColor: Colors.transparent,
+          foregroundColor: const Color(0xFF231309),
+          shadowColor: Colors.transparent,
+          elevation: 0,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(999),
+          ),
+        ),
+        child: const Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.sports_esports_rounded, size: 21),
+            SizedBox(width: 8),
+            Text(
+              'Macera Modunu Seç',
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+            SizedBox(width: 8),
+            Icon(Icons.arrow_forward_rounded, size: 21),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _GameModePage extends StatelessWidget {
   final QuestTheme selectedMode;
   final ValueChanged<QuestTheme> onModeSelected;
   final VoidCallback onStart;
+  final VoidCallback onBack;
 
   const _GameModePage({
     required this.selectedMode,
     required this.onModeSelected,
     required this.onStart,
+    required this.onBack,
   });
 
   @override
@@ -804,9 +948,17 @@ class _GameModePage extends StatelessWidget {
     return ListView(
       padding: const EdgeInsets.fromLTRB(18, 18, 18, 110),
       children: [
+        Align(
+          alignment: Alignment.centerLeft,
+          child: _SoftBackButton(
+            text: 'Seçimlere Dön',
+            onTap: onBack,
+          ),
+        ),
+        const SizedBox(height: 10),
         Image.asset(
           'assets/images/logo_alchemy.png',
-          height: 118,
+          height: 112,
           fit: BoxFit.contain,
         ),
         const SizedBox(height: 14),
@@ -868,26 +1020,64 @@ class _GameModePage extends StatelessWidget {
           },
         ),
         const SizedBox(height: 24),
-        SizedBox(
-          height: 56,
+        Container(
+          height: 58,
           width: double.infinity,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(999),
+            gradient: LinearGradient(
+              colors: [
+                selectedMode.glowColor,
+                const Color(0xFFFFD58A),
+                selectedMode.glowColor.withOpacity(0.85),
+              ],
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: selectedMode.glowColor.withOpacity(0.75),
+                blurRadius: 32,
+                spreadRadius: 2,
+                offset: const Offset(0, 10),
+              ),
+              BoxShadow(
+                color: const Color(0xFFFFD58A).withOpacity(0.45),
+                blurRadius: 24,
+                spreadRadius: 1,
+                offset: const Offset(0, 4),
+              ),
+            ],
+            border: Border.all(
+              color: Colors.white.withOpacity(0.34),
+              width: 1.2,
+            ),
+          ),
           child: ElevatedButton(
             onPressed: onStart,
             style: ElevatedButton.styleFrom(
-              backgroundColor: selectedMode.glowColor,
-              foregroundColor: Colors.white,
+              backgroundColor: Colors.transparent,
+              foregroundColor: const Color(0xFF231309),
+              disabledBackgroundColor: Colors.transparent,
+              shadowColor: Colors.transparent,
               elevation: 0,
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(999),
               ),
-              shadowColor: selectedMode.glowColor.withOpacity(0.5),
             ),
-            child: const Text(
-              'Haydi Öğrenmeye Başlayalım',
-              style: TextStyle(
-                fontSize: 14.5,
-                fontWeight: FontWeight.w900,
-              ),
+            child: const Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.auto_awesome_rounded, size: 20),
+                SizedBox(width: 8),
+                Text(
+                  'Haydi Öğrenmeye Başlayalım',
+                  style: TextStyle(
+                    fontSize: 14.8,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                SizedBox(width: 8),
+                Icon(Icons.auto_awesome_rounded, size: 20),
+              ],
             ),
           ),
         ),

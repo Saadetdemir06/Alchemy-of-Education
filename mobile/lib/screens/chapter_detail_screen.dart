@@ -1,3 +1,4 @@
+import 'dart:math';
 import 'package:flutter/material.dart';
 
 import '../models/adventure_models.dart';
@@ -145,6 +146,22 @@ class _ChapterDetailScreenState extends State<ChapterDetailScreen> {
     return true;
   }
 
+  Future<void> saveFailedAdventureToHistory() async {
+    try {
+      await profileService.saveAdventureHistory(
+        field: widget.field,
+        topic: widget.topic,
+        level: widget.level,
+        mode: widget.modeTitle,
+        mapTitle: '${widget.mapTitle} - Tamamlanamadı',
+        earnedGold: 0,
+        earnedXp: 0,
+      );
+    } catch (e) {
+      // Geçmiş kaydı olmazsa uygulama çökmesin.
+    }
+  }
+
   String buildIdeaText() {
     if (isBoss) {
       return 'Bu final sorusunda önce sorunun senden tanım mı, amaç mı, kullanım mı istediğini ayır. Sonra seçenekleri tek tek ele.';
@@ -154,6 +171,11 @@ class _ChapterDetailScreenState extends State<ChapterDetailScreen> {
   }
 
   Future<void> buyHint() async {
+    if (!isBoss && widget.chapter.id == 1) {
+      showMessage('İlk görevde ipucu kullanılamaz. Önce görevi kendin dene.');
+      return;
+    }
+
     final currentGold = await profileService.getCurrentGold();
 
     if (currentGold < 5) {
@@ -180,6 +202,11 @@ class _ChapterDetailScreenState extends State<ChapterDetailScreen> {
   }
 
   Future<void> buyIdea() async {
+    if (!isBoss && widget.chapter.id == 1) {
+      showMessage('İlk görevde fikir kullanılamaz. Önce görevi kendin dene.');
+      return;
+    }
+
     final currentGold = await profileService.getCurrentGold();
 
     if (currentGold < 10) {
@@ -218,10 +245,16 @@ class _ChapterDetailScreenState extends State<ChapterDetailScreen> {
       isProcessing = true;
     });
 
+    /*
+      DOĞRU CEVAP:
+      - Kullanıcı 15 altın kazanır.
+      - Görevi tamamla butonu çıkar.
+    */
     if (isCorrect) {
       setState(() {
         taskGold = 15;
         quizFinished = true;
+        taskFailed = false;
         isProcessing = false;
         feedbackText =
             'Doğru cevap! Görevi tamamlayınca 15 altın kazanacaksın.';
@@ -231,32 +264,96 @@ class _ChapterDetailScreenState extends State<ChapterDetailScreen> {
       return;
     }
 
+    /*
+      YANLIŞ CEVAP SAYISI ARTAR
+    */
     normalWrongCount++;
 
+    /*
+      1. GÖREV - İLK YANLIŞ:
+      - Kullanıcı 0 altınla başladığı için altın düşmez.
+      - Doğru cevap yeşil gösterilmez.
+      - Tekrar dene hakkı verilir.
+      - Görevi Tamamla çıkmaz.
+    */
     if (isFirstChapter && normalWrongCount == 1) {
       setState(() {
+        taskGold = 0;
         quizFinished = false;
+        taskFailed = false;
         isProcessing = false;
-        feedbackText = 'Yanlış cevap. Tekrar dene.';
+        feedbackText =
+            'Yanlış cevap. İlk görev olduğu için altın düşmedi. Tekrar dene.';
       });
 
       return;
     }
 
+    /*
+      1. GÖREV - İKİNCİ YANLIŞ:
+      - Altın düşmez.
+      - "5 altın kaybettin" yazmaz.
+      - Görev başarısız olur.
+      - Doğru cevap gösterilir.
+      - Görevi Tamamla çıkmaz.
+      - Yeni Görev Üret çıkar.
+      - Geçmişe kaydedilir.
+    */
+    if (isFirstChapter && normalWrongCount >= 2) {
+      await saveFailedAdventureToHistory();
+
+      setState(() {
+        taskGold = 0;
+        quizFinished = false;
+        taskFailed = true;
+        isProcessing = false;
+        feedbackText =
+            'Görev tamamlanamadı. İlk görevde altının olmadığı için altın düşmedi. Bu deneme geçmişe kaydedildi. Yeni görev üretebilirsin.';
+      });
+
+      return;
+    }
+
+    /*
+      2, 3, 4, 5. GÖREVLERDE YANLIŞ:
+      - Altın yeterliyse 5 altın düşer.
+      - Doğru cevap yeşil gösterilir.
+      - Bu görevden altın kazanmaz.
+      - Tekrar Dene çıkmaz.
+      - Görevi Tamamla çıkar.
+      - Sonraki göreve geçebilir.
+    */
     final spentGold = await spendFiveGoldIfPossible();
 
-    setState(() {
-      isProcessing = false;
-      taskFailed = true;
-      quizFinished = false;
+    if (spentGold) {
+      setState(() {
+        taskGold = 0;
+        quizFinished = true;
+        taskFailed = false;
+        isProcessing = false;
+        feedbackText =
+            'Yanlış cevap. Doğru cevap gösterildi. 5 altın kaybettin. Bu görevden altın kazanamazsın ama devam edebilirsin.';
+      });
 
-      if (spentGold) {
-        feedbackText =
-            'Görev tamamlanamadı. Bu görev kaydedilmedi. 5 altın kaybettin. Yeni görev üretebilirsin.';
-      } else {
-        feedbackText =
-            'Görev tamamlanamadı. Bu görev kaydedilmedi. Altının olmadığı için altın düşmedi. Yeni görev üretebilirsin.';
-      }
+      return;
+    }
+
+    /*
+      2, 3, 4, 5. GÖREVLERDE ALTIN YETERSİZ:
+      - Altın yetersizse görev başarısız olur.
+      - Görevi Tamamla çıkmaz.
+      - Yeni Görev Üret çıkar.
+      - Geçmişe kaydedilir.
+    */
+    await saveFailedAdventureToHistory();
+
+    setState(() {
+      taskGold = 0;
+      quizFinished = false;
+      taskFailed = true;
+      isProcessing = false;
+      feedbackText =
+          'Görev tamamlanamadı. Altının yetersiz olduğu için devam edemezsin. Bu deneme geçmişe kaydedildi. Yeni görev üretebilirsin.';
     });
   }
 
@@ -267,7 +364,8 @@ class _ChapterDetailScreenState extends State<ChapterDetailScreen> {
     setState(() {
       selectedAnswer = null;
       answered = false;
-      feedbackText = 'Tekrar dene. Doğru cevabı bulmadan görev tamamlanmaz.';
+      isProcessing = false;
+      feedbackText = 'Tekrar dene. Doğru cevabı bulmadan ilerleyemezsin.';
     });
   }
 
@@ -323,12 +421,14 @@ class _ChapterDetailScreenState extends State<ChapterDetailScreen> {
     final spentGold = await spendFiveGoldIfPossible();
 
     if (!spentGold) {
+      await saveFailedAdventureToHistory();
+
       setState(() {
         isProcessing = false;
         taskFailed = true;
         quizFinished = false;
         feedbackText =
-            'Final görev başarısız oldu. Altının olmadığı için bu soruda devam edemedin. Yeni görev üretebilirsin.';
+            'Final görev başarısız oldu. Altının yetersiz olduğu için devam edemedin. Bu deneme geçmişe kaydedildi.';
       });
 
       return;
@@ -345,14 +445,15 @@ class _ChapterDetailScreenState extends State<ChapterDetailScreen> {
 
       setState(() {
         selectedAnswer = null;
-        feedbackText = 'Aynı soruyu tekrar çöz. Doğru cevap vermeden ilerleyemezsin.';
+        feedbackText =
+            'Aynı soruyu tekrar çöz. Doğru cevap vermeden ilerleyemezsin.';
       });
     });
   }
 
   Future<void> completeTask() async {
     if (taskFailed) {
-      showMessage('Başarısız görev kaydedilemez.');
+      showMessage('Başarısız görev zaten geçmişe kaydedildi.');
       return;
     }
 
@@ -377,17 +478,17 @@ class _ChapterDetailScreenState extends State<ChapterDetailScreen> {
 
       if (isBoss) {
         await profileService.addBadge();
-
-        await profileService.saveAdventureHistory(
-          field: widget.field,
-          topic: widget.topic,
-          level: widget.level,
-          mode: widget.modeTitle,
-          mapTitle: widget.mapTitle,
-          earnedGold: taskGold,
-          earnedXp: 0,
-        );
       }
+
+      await profileService.saveAdventureHistory(
+        field: widget.field,
+        topic: widget.topic,
+        level: widget.level,
+        mode: widget.modeTitle,
+        mapTitle: widget.mapTitle,
+        earnedGold: taskGold,
+        earnedXp: 0,
+      );
 
       setState(() {
         rewardSaved = true;
@@ -401,7 +502,9 @@ class _ChapterDetailScreenState extends State<ChapterDetailScreen> {
 
         feedbackText = isBoss
             ? 'Final boss tamamlandı! $taskGold altın ve 1 rozet kazandın.'
-            : 'Görev tamamlandı! $taskGold altın kazandın.';
+            : taskGold > 0
+                ? 'Görev tamamlandı! $taskGold altın kazandın.'
+                : 'Görev tamamlandı. Bu görevden altın kazanmadın.';
       });
     } catch (e) {
       setState(() {
@@ -425,26 +528,43 @@ class _ChapterDetailScreenState extends State<ChapterDetailScreen> {
       return Colors.white.withOpacity(0.14);
     }
 
-    if (selectedAnswer == index) {
-      if (index == widget.chapter.correctIndex) {
-        return const Color(0xFF60D394);
-      }
+    final correctIndex = widget.chapter.correctIndex;
+    final selectedIsWrong = selectedAnswer != correctIndex;
 
+    final isFirstChapterFirstWrong =
+        widget.chapter.id == 1 &&
+        normalWrongCount == 1 &&
+        !quizFinished &&
+        !taskFailed;
+
+    if (selectedAnswer == index && index == correctIndex) {
+      return const Color(0xFF60D394);
+    }
+
+    if (selectedAnswer == index && index != correctIndex) {
       return const Color(0xFFFF4F6D);
+    }
+
+    /*
+      Yanlış cevap sonrası doğru cevabı yeşil göster.
+      Ama 1. görevin ilk yanlışında gösterme.
+    */
+    if (selectedIsWrong && index == correctIndex && !isFirstChapterFirstWrong) {
+      return const Color(0xFF60D394);
     }
 
     return Colors.white.withOpacity(0.14);
   }
 
   Color finalOptionBorderColor(int index) {
-    final question = currentFinalQuestion;
-
-    if (question == null || selectedAnswer == null) {
+    if (currentFinalQuestion == null || selectedAnswer == null) {
       return Colors.white.withOpacity(0.14);
     }
 
+    // Final mini quizde yanlış cevap sonrası doğru cevabı göstermiyoruz.
+    // Kullanıcı aynı soruyu tekrar çözeceği için sadece seçtiği şık renklensin.
     if (selectedAnswer == index) {
-      if (index == question.correctIndex) {
+      if (index == currentFinalQuestion!.correctIndex) {
         return const Color(0xFF60D394);
       }
 
@@ -519,6 +639,7 @@ class _ChapterDetailScreenState extends State<ChapterDetailScreen> {
                     _HelpPanel(
                       showHint: showHint,
                       showIdea: showIdea,
+                      firstChapterLocked: !isBoss && widget.chapter.id == 1,
                       hint: widget.chapter.memoryTip,
                       idea: ideaText,
                       onBuyHint: buyHint,
@@ -550,7 +671,8 @@ class _ChapterDetailScreenState extends State<ChapterDetailScreen> {
                         success: !feedbackText.contains('Yanlış') &&
                             !feedbackText.contains('başarısız') &&
                             !feedbackText.contains('tamamlanamadı') &&
-                            !feedbackText.contains('kaydedilmedi'),
+                            !feedbackText.contains('yetersiz') &&
+                            !feedbackText.contains('kaybettin'),
                       ),
                     ],
                     const SizedBox(height: 16),
@@ -621,7 +743,7 @@ class _ChapterDetailScreenState extends State<ChapterDetailScreen> {
                             ),
                             child: Text(
                               lastCoinChange == 0
-                                  ? 'Altın düşmedi'
+                                  ? 'Altın yetersiz'
                                   : '${lastCoinChange > 0 ? '+' : ''}$lastCoinChange 🪙',
                               style: const TextStyle(
                                 color: Colors.white,
@@ -855,9 +977,10 @@ class _TextPanel extends StatelessWidget {
   }
 }
 
-class _HelpPanel extends StatelessWidget {
+class _HelpPanel extends StatefulWidget {
   final bool showHint;
   final bool showIdea;
+  final bool firstChapterLocked;
   final String hint;
   final String idea;
   final VoidCallback onBuyHint;
@@ -866,6 +989,7 @@ class _HelpPanel extends StatelessWidget {
   const _HelpPanel({
     required this.showHint,
     required this.showIdea,
+    required this.firstChapterLocked,
     required this.hint,
     required this.idea,
     required this.onBuyHint,
@@ -873,54 +997,281 @@ class _HelpPanel extends StatelessWidget {
   });
 
   @override
+  State<_HelpPanel> createState() => _HelpPanelState();
+}
+
+class _HelpPanelState extends State<_HelpPanel> with TickerProviderStateMixin {
+  late final AnimationController _lidCtrl;
+  late final AnimationController _orbitCtrl;
+  late final AnimationController _pulseCtrl;
+  late final AnimationController _runeCtrl;
+
+  late final Animation<double> _lidAngle;
+  late final Animation<double> _glowRadius;
+
+  bool _isOpen = false;
+
+  @override
+  void initState() {
+    super.initState();
+
+    _lidCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 500),
+    );
+
+    _lidAngle = Tween<double>(begin: 0, end: -0.7).animate(
+      CurvedAnimation(parent: _lidCtrl, curve: Curves.easeInOut),
+    );
+
+    _orbitCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 8),
+    )..repeat();
+
+    _pulseCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 2),
+    )..repeat(reverse: true);
+
+    _glowRadius = Tween<double>(begin: 35, end: 62).animate(
+      CurvedAnimation(parent: _pulseCtrl, curve: Curves.easeInOut),
+    );
+
+    _runeCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 18),
+    )..repeat();
+  }
+
+  @override
+  void dispose() {
+    _lidCtrl.dispose();
+    _orbitCtrl.dispose();
+    _pulseCtrl.dispose();
+    _runeCtrl.dispose();
+    super.dispose();
+  }
+
+  void _toggleChest() {
+    setState(() {
+      _isOpen = !_isOpen;
+    });
+
+    if (_isOpen) {
+      _lidCtrl.forward();
+    } else {
+      _lidCtrl.reverse();
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.fromLTRB(16, 15, 16, 15),
+      padding: const EdgeInsets.fromLTRB(15, 15, 15, 15),
       decoration: BoxDecoration(
-        color: const Color(0xFF2A211B).withOpacity(0.90),
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(
-          color: const Color(0xFFFFD58A).withOpacity(0.24),
+        borderRadius: BorderRadius.circular(28),
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            const Color(0xFF3B2417).withOpacity(0.96),
+            const Color(0xFF17111F).withOpacity(0.96),
+            const Color(0xFF271537).withOpacity(0.96),
+          ],
         ),
+        border: Border.all(
+          color: const Color(0xFFFFD58A).withOpacity(0.36),
+          width: 1.2,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFFFFD58A).withOpacity(0.15),
+            blurRadius: 24,
+            offset: const Offset(0, 10),
+          ),
+          BoxShadow(
+            color: const Color(0xFF8A4FFF).withOpacity(0.14),
+            blurRadius: 28,
+            offset: const Offset(0, 8),
+          ),
+        ],
       ),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            'Yardım Sandığı',
-            style: TextStyle(
-              color: Color(0xFFFFE7B2),
-              fontSize: 15,
-              fontWeight: FontWeight.w900,
-            ),
-          ),
-          const SizedBox(height: 10),
           Row(
             children: [
-              Expanded(
-                child: _HelpButton(
-                  title: 'İpucu',
-                  cost: '5 altın',
-                  onTap: onBuyHint,
+              GestureDetector(
+                onTap: _toggleChest,
+                child: SizedBox(
+                  width: 118,
+                  height: 118,
+                  child: Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      AnimatedBuilder(
+                        animation: _runeCtrl,
+                        builder: (_, __) {
+                          return Transform.rotate(
+                            angle: _runeCtrl.value * 2 * pi,
+                            child: CustomPaint(
+                              size: const Size(116, 116),
+                              painter: _SmallRuneRingPainter(
+                                color: const Color(0xFF9B5CFF)
+                                    .withOpacity(0.55),
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                      AnimatedBuilder(
+                        animation: _orbitCtrl,
+                        builder: (_, __) {
+                          return Stack(
+                            alignment: Alignment.center,
+                            children: [
+                              _OrbitGem(
+                                angle: _orbitCtrl.value * 2 * pi,
+                                color: const Color(0xFFFF6B2B),
+                                radius: 48,
+                                size: 7,
+                              ),
+                              _OrbitGem(
+                                angle: -_orbitCtrl.value * 2 * pi * 1.3,
+                                color: const Color(0xFF00E5CC),
+                                radius: 44,
+                                size: 5,
+                              ),
+                              _OrbitGem(
+                                angle: _orbitCtrl.value * 2 * pi * 0.7,
+                                color: const Color(0xFFFFD700),
+                                radius: 51,
+                                size: 6,
+                              ),
+                            ],
+                          );
+                        },
+                      ),
+                      AnimatedBuilder(
+                        animation: _glowRadius,
+                        builder: (_, __) {
+                          return Container(
+                            width: _glowRadius.value * 1.55,
+                            height: _glowRadius.value,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              gradient: RadialGradient(
+                                colors: [
+                                  const Color(0xFFFFD700)
+                                      .withOpacity(_isOpen ? 0.54 : 0.22),
+                                  const Color(0xFFFF6B2B)
+                                      .withOpacity(_isOpen ? 0.28 : 0.10),
+                                  Colors.transparent,
+                                ],
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                      AnimatedBuilder(
+                        animation: _lidAngle,
+                        builder: (_, __) {
+                          return CustomPaint(
+                            size: const Size(86, 80),
+                            painter: _SmallChestPainter(
+                              lidAngle: _lidAngle.value,
+                            ),
+                          );
+                        },
+                      ),
+                    ],
+                  ),
                 ),
               ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: _HelpButton(
-                  title: 'Fikir ver',
-                  cost: '10 altın',
-                  onTap: onBuyIdea,
+              const SizedBox(width: 12),
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Yardım Sandığı',
+                      style: TextStyle(
+                        color: Color(0xFFFFE7B2),
+                        fontSize: 18,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    SizedBox(height: 5),
+                    Text(
+                      'Sandığa dokun, büyülü destekleri aç.',
+                      style: TextStyle(
+                        color: Colors.white70,
+                        fontSize: 12,
+                        height: 1.35,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ],
           ),
-          if (showHint) ...[
+          if (widget.firstChapterLocked) ...[
             const SizedBox(height: 12),
-            _UnlockedHelpText(title: 'İpucu', text: hint),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+              decoration: BoxDecoration(
+                color: Colors.black.withOpacity(0.22),
+                borderRadius: BorderRadius.circular(18),
+                border: Border.all(
+                  color: const Color(0xFFFFD58A).withOpacity(0.18),
+                ),
+              ),
+              child: const Text(
+                'İlk görevde yardım sandığı kapalıdır. İlk altınını kazanmak için görevi kendin denemelisin.',
+                style: TextStyle(
+                  color: Colors.white70,
+                  fontSize: 11.5,
+                  height: 1.35,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
           ],
-          if (showIdea) ...[
+          const SizedBox(height: 13),
+          Row(
+            children: [
+              Expanded(
+                child: _MagicHelpButton(
+                  label: 'İpucu',
+                  cost: widget.firstChapterLocked ? 'Kapalı' : '5 altın',
+                  icon: '🔮',
+                  locked: widget.firstChapterLocked,
+                  color: const Color(0xFF7B2FBE),
+                  onTap: widget.onBuyHint,
+                ),
+              ),
+              const SizedBox(width: 9),
+              Expanded(
+                child: _MagicHelpButton(
+                  label: 'Fikir ver',
+                  cost: widget.firstChapterLocked ? 'Kapalı' : '10 altın',
+                  icon: '✨',
+                  locked: widget.firstChapterLocked,
+                  color: const Color(0xFFFF6B2B),
+                  onTap: widget.onBuyIdea,
+                ),
+              ),
+            ],
+          ),
+          if (widget.showHint) ...[
             const SizedBox(height: 12),
-            _UnlockedHelpText(title: 'Fikir', text: idea),
+            _UnlockedHelpText(title: 'İpucu', text: widget.hint),
+          ],
+          if (widget.showIdea) ...[
+            const SizedBox(height: 12),
+            _UnlockedHelpText(title: 'Fikir', text: widget.idea),
           ],
         ],
       ),
@@ -928,37 +1279,139 @@ class _HelpPanel extends StatelessWidget {
   }
 }
 
-class _HelpButton extends StatelessWidget {
-  final String title;
+class _MagicHelpButton extends StatefulWidget {
+  final String label;
   final String cost;
+  final String icon;
+  final bool locked;
+  final Color color;
   final VoidCallback onTap;
 
-  const _HelpButton({
-    required this.title,
+  const _MagicHelpButton({
+    required this.label,
     required this.cost,
+    required this.icon,
+    required this.color,
     required this.onTap,
+    this.locked = false,
   });
 
   @override
+  State<_MagicHelpButton> createState() => _MagicHelpButtonState();
+}
+
+class _MagicHelpButtonState extends State<_MagicHelpButton>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _ctrl;
+  late final Animation<double> _scale;
+
+  bool _hovered = false;
+
+  @override
+  void initState() {
+    super.initState();
+
+    _ctrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 190),
+    );
+
+    _scale = Tween<double>(begin: 1.0, end: 1.045).animate(
+      CurvedAnimation(parent: _ctrl, curve: Curves.easeOut),
+    );
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      height: 42,
-      child: ElevatedButton(
-        onPressed: onTap,
-        style: ElevatedButton.styleFrom(
-          backgroundColor: const Color(0xFFFFD58A),
-          foregroundColor: const Color(0xFF231309),
-          elevation: 0,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(999),
-          ),
-        ),
-        child: Text(
-          '$title • $cost',
-          textAlign: TextAlign.center,
-          style: const TextStyle(
-            fontSize: 10.6,
-            fontWeight: FontWeight.w900,
+    final disabled = widget.locked;
+
+    return Opacity(
+      opacity: disabled ? 0.54 : 1,
+      child: MouseRegion(
+        onEnter: (_) {
+          if (disabled) return;
+          setState(() => _hovered = true);
+          _ctrl.forward();
+        },
+        onExit: (_) {
+          if (disabled) return;
+          setState(() => _hovered = false);
+          _ctrl.reverse();
+        },
+        child: GestureDetector(
+          onTap: disabled ? null : widget.onTap,
+          onTapDown: (_) {
+            if (!disabled) _ctrl.forward();
+          },
+          onTapUp: (_) {
+            if (!disabled) _ctrl.reverse();
+          },
+          onTapCancel: () {
+            if (!disabled) _ctrl.reverse();
+          },
+          child: AnimatedBuilder(
+            animation: _scale,
+            builder: (_, child) {
+              return Transform.scale(
+                scale: _scale.value,
+                child: child,
+              );
+            },
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 190),
+              height: 46,
+              padding: const EdgeInsets.symmetric(horizontal: 10),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(16),
+                color: disabled
+                    ? const Color(0xFF5A5148).withOpacity(0.55)
+                    : widget.color.withOpacity(0.18),
+                border: Border.all(
+                  color: disabled
+                      ? Colors.white24
+                      : widget.color.withOpacity(0.72),
+                  width: 1,
+                ),
+                boxShadow: [
+                  if (!disabled)
+                    BoxShadow(
+                      color: widget.color.withOpacity(_hovered ? 0.58 : 0.30),
+                      blurRadius: _hovered ? 24 : 13,
+                      spreadRadius: _hovered ? 1 : 0,
+                    ),
+                ],
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(
+                    widget.icon,
+                    style: const TextStyle(fontSize: 15),
+                  ),
+                  const SizedBox(width: 6),
+                  Flexible(
+                    child: Text(
+                      '${widget.label} • ${widget.cost}',
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: disabled
+                            ? Colors.white70
+                            : Colors.white.withOpacity(0.92),
+                        fontSize: 10.7,
+                        letterSpacing: 0.5,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ),
         ),
       ),
@@ -1100,13 +1553,15 @@ class _FinalQuizPanel extends StatelessWidget {
       return const SizedBox.shrink();
     }
 
-    return _QuizBox(
-      title: 'Final Mini Quiz • ${questionIndex + 1}/$totalQuestions',
-      question: question!.question,
-      options: question!.options,
-      borderColorBuilder: borderColorBuilder,
-      onAnswer: selectedAnswer == null ? onAnswer : null,
-    );
+  final safeQuestion = question!;
+
+return _QuizBox(
+  title: 'Final Mini Quiz • ${questionIndex + 1}/$totalQuestions',
+  question: safeQuestion.question,
+  options: safeQuestion.options,
+  borderColorBuilder: borderColorBuilder,
+  onAnswer: selectedAnswer == null ? onAnswer : null,
+);
   }
 }
 
@@ -1409,6 +1864,265 @@ class _FinishButton extends StatelessWidget {
           style: TextStyle(
             fontWeight: FontWeight.w900,
           ),
+        ),
+      ),
+    );
+  }
+}
+class _SmallChestPainter extends CustomPainter {
+  final double lidAngle;
+
+  _SmallChestPainter({required this.lidAngle});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final w = size.width;
+    final h = size.height;
+    final cx = w / 2;
+    final cy = h / 2 + 6;
+
+    final bodyRect = RRect.fromRectAndRadius(
+      Rect.fromLTWH(cx - 37, cy, 74, 38),
+      const Radius.circular(6),
+    );
+
+    canvas.drawRRect(
+      bodyRect,
+      Paint()
+        ..shader = const LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            Color(0xFF4A2000),
+            Color(0xFF1A0800),
+          ],
+        ).createShader(bodyRect.outerRect),
+    );
+
+    canvas.drawRRect(
+      bodyRect,
+      Paint()
+        ..color = const Color(0xFFB8860B)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.4,
+    );
+
+    _drawBand(canvas, Offset(cx - 37, cy + 10), 74);
+    _drawBand(canvas, Offset(cx - 37, cy + 29), 74);
+
+    canvas.save();
+    canvas.translate(cx, cy + 1);
+
+    final squeeze = 1.0 + lidAngle.abs() * 0.3;
+
+    final lidPath = Path()
+      ..moveTo(-37, 0)
+      ..quadraticBezierTo(0, -30 * squeeze, 37, 0)
+      ..close();
+
+    canvas.drawPath(
+      lidPath,
+      Paint()
+        ..shader = const LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            Color(0xFF5A2A00),
+            Color(0xFF1A0800),
+          ],
+        ).createShader(Rect.fromLTWH(-37, -30, 74, 30)),
+    );
+
+    canvas.drawPath(
+      lidPath,
+      Paint()
+        ..color = const Color(0xFFB8860B)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.4,
+    );
+
+    canvas.drawPath(
+      Path()
+        ..moveTo(-37, -8 * squeeze * 0.5)
+        ..quadraticBezierTo(0, -19 * squeeze, 37, -8 * squeeze * 0.5),
+      Paint()
+        ..shader = const LinearGradient(
+          colors: [
+            Color(0xFF5C3800),
+            Color(0xFFFFD700),
+            Color(0xFF5C3800),
+          ],
+        ).createShader(Rect.fromLTWH(-37, -20, 74, 8))
+        ..strokeWidth = 3
+        ..style = PaintingStyle.stroke,
+    );
+
+    canvas.drawOval(
+      Rect.fromCenter(
+        center: Offset(0, -15 * squeeze * 0.7),
+        width: 16,
+        height: 10,
+      ),
+      Paint()..color = const Color(0xFF1A0800),
+    );
+
+    canvas.drawOval(
+      Rect.fromCenter(
+        center: Offset(0, -15 * squeeze * 0.7),
+        width: 16,
+        height: 10,
+      ),
+      Paint()
+        ..color = const Color(0xFFFFD700)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1,
+    );
+
+    canvas.drawOval(
+      Rect.fromCenter(
+        center: Offset(0, -15 * squeeze * 0.7),
+        width: 8,
+        height: 5,
+      ),
+      Paint()..color = const Color(0xFF7B2FBE),
+    );
+
+    canvas.restore();
+
+    final lockRect = RRect.fromRectAndRadius(
+      Rect.fromCenter(
+        center: Offset(cx, cy + 4),
+        width: 18,
+        height: 15,
+      ),
+      const Radius.circular(3),
+    );
+
+    canvas.drawRRect(
+      lockRect,
+      Paint()
+        ..shader = const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            Color(0xFFFFE566),
+            Color(0xFFB8860B),
+          ],
+        ).createShader(lockRect.outerRect),
+    );
+
+    canvas.drawOval(
+      Rect.fromCenter(
+        center: Offset(cx, cy + 44),
+        width: 78,
+        height: 12,
+      ),
+      Paint()..color = Colors.black.withOpacity(0.42),
+    );
+  }
+
+  void _drawBand(Canvas canvas, Offset origin, double width) {
+    canvas.drawRect(
+      Rect.fromLTWH(origin.dx, origin.dy, width, 4),
+      Paint()
+        ..shader = const LinearGradient(
+          colors: [
+            Color(0xFF5C3800),
+            Color(0xFFFFD700),
+            Color(0xFF5C3800),
+          ],
+        ).createShader(Rect.fromLTWH(origin.dx, origin.dy, width, 4)),
+    );
+  }
+
+  @override
+  bool shouldRepaint(_SmallChestPainter oldDelegate) {
+    return oldDelegate.lidAngle != lidAngle;
+  }
+}
+
+class _SmallRuneRingPainter extends CustomPainter {
+  final Color color;
+
+  _SmallRuneRingPainter({required this.color});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final cx = size.width / 2;
+    final cy = size.height / 2;
+    final r = size.width / 2 - 7;
+
+    canvas.drawCircle(
+      Offset(cx, cy),
+      r,
+      Paint()
+        ..color = color.withOpacity(0.28)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 1),
+    );
+
+    const marks = 22;
+    final step = 2 * pi / marks;
+
+    final paint = Paint()
+      ..color = color.withOpacity(0.8)
+      ..strokeWidth = 1.1
+      ..strokeCap = StrokeCap.round;
+
+    for (int i = 0; i < marks; i++) {
+      final angle = i * step;
+      final inner = r - 4;
+      final outer = r;
+
+      final x1 = cx + inner * cos(angle);
+      final y1 = cy + inner * sin(angle);
+      final x2 = cx + outer * cos(angle);
+      final y2 = cy + outer * sin(angle);
+
+      canvas.drawLine(Offset(x1, y1), Offset(x2, y2), paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(_SmallRuneRingPainter oldDelegate) {
+    return oldDelegate.color != color;
+  }
+}
+
+class _OrbitGem extends StatelessWidget {
+  final double angle;
+  final double radius;
+  final double size;
+  final Color color;
+
+  const _OrbitGem({
+    required this.angle,
+    required this.color,
+    required this.radius,
+    required this.size,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final x = cos(angle) * radius;
+    final y = sin(angle) * radius;
+
+    return Transform.translate(
+      offset: Offset(x, y),
+      child: Container(
+        width: size,
+        height: size,
+        decoration: BoxDecoration(
+          color: color,
+          borderRadius: BorderRadius.circular(2),
+          boxShadow: [
+            BoxShadow(
+              color: color.withOpacity(0.75),
+              blurRadius: 10,
+              spreadRadius: 1.5,
+            ),
+          ],
         ),
       ),
     );

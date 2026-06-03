@@ -5,7 +5,7 @@ import 'package:http/http.dart' as http;
 import '../models/adventure_models.dart';
 
 class AdventureApiService {
-  static const String baseUrl = 'http://127.0.0.1:8000';
+  static const String baseUrl = 'https://alchemy-of-education-api.onrender.com';
 
   static Future<List<AdventureChapter>> generateAdventure({
     required String field,
